@@ -3,7 +3,7 @@
 # General architecture
 
 ```
-robot_mission_numberofthegroup/
+SMA-RobotInHostileEnv/
 │
 ├── agents/
 │   ├── __init__.py
@@ -20,7 +20,7 @@ robot_mission_numberofthegroup/
 │   └── server.py
 │
 ├── README.md
-└── main.py
+└── run.py
 ```
 
 # Robot Mission Simulation
@@ -56,7 +56,7 @@ This project simulates a multi-agent system where robots collaborate to collect 
 
 To run the simulation, execute the following command:
 ```
-python main.py
+python run.py
 ```
 
 This will launch the simulation with the default configuration. You can modify the simulation parameters by editing the `run.py` file.
