@@ -5,7 +5,6 @@ from mesa.datacollection import DataCollector
 from agents.agents import GreenRobotAgent, YellowRobotAgent, RedRobotAgent
 from agents.object_agents import Radioactivity, WasteDisposalZone, Waste
 from core.schedule import RandomActivationByType
-from communication.message import MessageService
 
 class RobotMissionModel(Model):
     def __init__(self, width, height, num_green_robots, num_yellow_robots, num_red_robots, num_wastes):
@@ -23,9 +22,6 @@ class RobotMissionModel(Model):
             model_reporters={"Wastes": lambda m: self.count_wastes()},
             agent_reporters={}
         )
-
-        self.messages_service = MessageService()
-        MessageService.get_instance().set_instant_delivery(False)
 
         # Create radioactivity agents
         for cell in self.grid.coord_iter():
@@ -48,7 +44,7 @@ class RobotMissionModel(Model):
         # Create wastes
         for _ in range(self.num_wastes):
             x, y = self.random.randrange(self.grid.width // 3), self.random.randrange(self.grid.height)
-            waste = Waste(self.next_id(), self, "Green")
+            waste = Waste(self.next_id(), self, "green")
             self.grid.place_agent(waste, (x, y))
             self.schedule.add(waste)
 
@@ -59,64 +55,85 @@ class RobotMissionModel(Model):
             self.grid.place_agent(robot, (x, y))
             self.schedule.add(robot)
 
-        for _ in range(self.num_yellow_robots):
-            x, y = self.random.randrange(2 * self.grid.width // 3), self.random.randrange(self.grid.height)
-            robot = YellowRobotAgent(self.next_id(), self)
-            self.grid.place_agent(robot, (x, y))
-            self.schedule.add(robot)
+        # for _ in range(self.num_yellow_robots):
+        #     x, y = self.random.randrange(2 * self.grid.width // 3), self.random.randrange(self.grid.height)
+        #     robot = YellowRobotAgent(self.next_id(), self)
+        #     self.grid.place_agent(robot, (x, y))
+        #     self.schedule.add(robot)
 
-        for _ in range(self.num_red_robots):
-            x, y = self.random.randrange(self.grid.width), self.random.randrange(self.grid.height)
-            robot = RedRobotAgent(self.next_id(), self)
-            self.grid.place_agent(robot, (x, y))
-            self.schedule.add(robot)
+        # for _ in range(self.num_red_robots):
+        #     x, y = self.random.randrange(self.grid.width), self.random.randrange(self.grid.height)
+        #     robot = RedRobotAgent(self.next_id(), self)
+        #     self.grid.place_agent(robot, (x, y))
+        #     self.schedule.add(robot)
 
     def step(self):
         self.datacollector.collect(self)
         self.schedule.step()
-        self.messages_service.dispatch_messages()
 
     def do(self, agent, action):
+        print(action)
         if action["action"] == "move":
             self.grid.move_agent(agent, action["next_move"])
             percepts = self.get_percepts(agent)
             return percepts
+        
         elif action["action"] == "pick_up":
-            waste = self.get_waste_at(agent.pos)
-            if waste:
-                self.grid.remove_agent(waste)
-                self.schedule.remove(waste)
-                agent.carrying.append(waste)
+            if isinstance(agent, GreenRobotAgent):
+                agent_pos = agent.pos
+                waste_agent = None
+                for cell_content in self.grid.get_cell_list_contents(agent_pos):
+                    if isinstance(cell_content, Waste):
+                        waste_agent = cell_content
+                        break
+                if waste_agent:
+                    agent.wastes_carried.append(waste_agent)
+                    agent.carried_color = "green"
+                    self.grid.remove_agent(waste_agent)
+                    self.schedule.remove(waste_agent)
+                    percepts = self.get_percepts(agent)
+                    return percepts
+                else:
+                    percepts = self.get_percepts(agent)
+                    return percepts
+        
+        elif action["action"] == "transform":
+            if isinstance(agent, GreenRobotAgent) and len(agent.wastes_carried) == 2:
+                new_waste = Waste(self.next_id(), self, "yellow") # Create the new waste
+                agent.wastes_carried = [] # Reset what agent carry
+                agent.wastes_carried.append(new_waste) # Add the new yellow waste
+                agent.carried_color = "yellow"
                 percepts = self.get_percepts(agent)
                 return percepts
-        # elif action["action"] == "transform":
-        #     if len(agent.carrying) == 2 and all(waste.type == "Green" for waste in agent.carrying):
-        #         new_waste = Waste(self.next_id(), self, "Yellow") 
-        #         agent.carrying = [new_waste]
-        #         percepts = self.get_percepts(agent)
-        #         return percepts
-        #     elif len(agent.carrying) == 2 and all(waste.type == "Yellow" for waste in agent.carrying):
-        #         new_waste = Waste(self.next_id(), self, "Red")
-        #         agent.carrying = [new_waste]
-        #         percepts = self.get_percepts(agent)
-        #         return percepts
-        # elif action["action"] == "put_down":
-        #     if agent.carrying:
-        #         waste = agent.carrying.pop()
-        #         self.grid.place_agent(waste, agent.pos)
-        #         self.schedule.add(waste)
-        #         percepts = self.get_percepts(agent)
-        #         return percepts
+            # TODO: Yellow transform action
+        
+        elif action["action"] == "bring_east":
+            if isinstance(agent, GreenRobotAgent) and not agent.full_east and agent.carried_color == "yellow":
+                current_pos = agent.pos
+                next_pos = (current_pos[0] + 1, current_pos[1])
+                if next_pos[0] < (self.grid.width // 3):
+                    self.grid.move_agent(agent, next_pos)
+                if next_pos[0] >= (self.grid.width // 3) - 1:
+                    agent.full_east = True
+                percepts = self.get_percepts(agent)
+                return percepts
+            # TODO: Yellow bring east action
+            
+        elif action["action"] == "put_down":
+            if isinstance(agent, GreenRobotAgent) and agent.full_east and agent.carried_color == "yellow":
+                current_pos = agent.pos
+                new_waste = Waste(self.next_id(), self, "yellow")
+                agent.wastes_carried = []
+                agent.carried_color = "green"
+                agent.full_east = False
+                self.grid.place_agent(new_waste, current_pos)
+                percepts = self.get_percepts(agent)
+                return percepts
+            # TODO: Yellow and Red put down action
 
     def is_move_possible(self, agent, destination):
-        print("destination >>> ", destination, "this cell is empty >>> ", self.grid.is_cell_empty(destination))
-        if not self.grid.is_cell_empty(destination):
-            return False
-        if isinstance(agent, GreenRobotAgent) and destination[0] >= self.grid.width // 3:
-            return False
-        if isinstance(agent, YellowRobotAgent) and destination[0] >= 2 * self.grid.width // 3:
-            return False
-        return True
+        # TODO
+        pass
 
     def get_waste_at(self, pos):
         agents = self.grid.get_cell_list_contents(pos)
